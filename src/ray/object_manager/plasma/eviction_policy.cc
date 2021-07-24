@@ -90,7 +90,8 @@ int64_t LRUCache::ChooseObjectsToEvict(int64_t num_bytes_required,
   return bytes_evicted;
 }
 
-EvictionPolicy::EvictionPolicy(const ObjectStore &object_store, const IAllocator &allocator)
+EvictionPolicy::EvictionPolicy(const ObjectStore &object_store,
+                               const IAllocator &allocator)
     : pinned_memory_bytes_(0),
       cache_("global lru", allocator.GetFootprintLimit()),
       object_store_(object_store),
