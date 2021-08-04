@@ -2,29 +2,46 @@ import sys
 import requests
 import os
 import json
+import ray
 
 from transformers import pipeline
+from fastapi import FastAPI
+from ray import serve
 
+ray.init(address="auto", namespace="summarizer")
+serve.start(detached=True)
+
+app = FastAPI()
 bearer_token = os.environ.get("BEARER_TOKEN")
 
-def main():
+def bearer_oauth(r):
+	r.headers["Authorization"] = f"Bearer {bearer_token}"
+	return r
 
-	### example command for wikipedia python serve.py wiki https://en.wikipedia.org/wiki/Oreo
-	### example command for twitter python serve.py twitter https://twitter.com/ChrisBHaynes/status/1422327596826587140
-	
-	# get passed in url
-	url = str(sys.argv[2])
-	print("URL: " + url)
+def summarize_text(text):
+	summarizer = pipeline("summarization")
+	summary_text = summarizer(text)[0]["summary_text"]
+	print("Summary: " + summary_text)
+	return summary_text
 
-	wiki_or_tweet = str(sys.argv[1])
+def fetch_wiki_text(wiki_title):
+	split_url = wiki_title.split("/")
+	wiki_title = split_url[4]
+	response = requests.get('https://en.wikipedia.org/w/api.php', 
+		params={
+			'action': 'query',
+			'format': 'json',
+			'titles':  wiki_title,
+			'prop': 'extracts',
+			'exintro': True,
+			# 'exsectionformat': 'plain',
+			'explaintext': True,
 
-	if wiki_or_tweet == "wiki":
-		text = fetch_wiki_text(url)
-	elif wiki_or_tweet == "twitter":
-		text = fetch_tweet_text(url)
-
-	summarize_text(text)
-
+		}
+	).json()
+	page = next(iter(response['query']['pages'].values()))
+	print("Wiki Text: " + page['extract'])
+	return page['extract']
 
 def fetch_tweet_text(url):
 	# get tweet id
@@ -42,37 +59,23 @@ def fetch_tweet_text(url):
 	print("Tweet text: " + text)
 	return text
 
-def summarize_text(text):
-	summarizer = pipeline("summarization")
-	summary_text = summarizer(text)[0]["summary_text"]
-	print("Summary: " + summary_text)
-	return summary_text
+@serve.deployment(route_prefix="/summarize")
+@serve.ingress(app)
+class SummarizeURLDeployment:
+	@app.get("/")
+	def summarize_wiki_or_twitter(self, type: str, url: str):
+		if type == "wiki":
+			text = fetch_wiki_text(url)
+		elif type == "twitter":
+			text = fetch_tweet_text(url)
+		return summarize_text(text)
 
+SummarizeURLDeployment.deploy()
 
-def bearer_oauth(r):
-	r.headers["Authorization"] = f"Bearer {bearer_token}"
-	return r
+#curl -X GET localhost:8000/summarize/\?type\=wiki\&url\=https://en.wikipedia.org/wiki/Oreo
+#curl -X GET localhost:8000/summarize/\?type\=twitter\&url\=https://twitter.com/StarbucksNews/status/1422935361857064969
 
-
-def fetch_wiki_text(url):
-	split_url = url.split("/")
-	wiki_title = split_url[4]
-	response = requests.get('https://en.wikipedia.org/w/api.php', 
-		params={
-			'action': 'query',
-			'format': 'json',
-			'titles':  wiki_title,
-			'prop': 'extracts',
-			'exintro': True,
-			'explaintext': True,
-		}
-	).json()
-	page = next(iter(response['query']['pages'].values()))
-	print("Wiki Text: " + page['extract'])
-	return page['extract']
-
-
-if __name__ == "__main__":
-	main()
+# if __name__ == "__main__":
+# 	main()
 
 
