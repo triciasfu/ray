@@ -3,13 +3,13 @@ import requests
 import os
 import json
 import ray
+import time
 
 from transformers import pipeline
 from fastapi import FastAPI
 from ray import serve
 
 ray.client("anyscale://tfu-tutorial").cluster_env("tfu-tutorial-cluster-env").namespace("summarizer").job_name("tfu-test").connect()
-# ray.client().namespace("summarizer").connect()
 # ray.init(address="auto", namespace="summarizer")
 serve.start(detached=True)
 
@@ -24,6 +24,7 @@ def summarize_text(text):
 	summarizer = pipeline("summarization")
 	summary_text = summarizer(text)[0]["summary_text"]
 	print("Summary: " + summary_text)
+	# print("--- %s seconds ---" % (time.time() - start_time))
 	return summary_text
 
 def fetch_wiki_text(wiki_title):
@@ -61,11 +62,12 @@ def fetch_tweet_text(url):
 	print("Tweet text: " + text)
 	return text
 
-@serve.deployment(route_prefix="/summarize")
+@serve.deployment(route_prefix="/summarize", num_replicas=16)
 @serve.ingress(app)
 class SummarizeURLDeployment:
 	@app.get("/")
 	def summarize_wiki_or_twitter(self, type: str, url: str):
+		start_time = time.time()
 		if type == "wiki":
 			text = fetch_wiki_text(url)
 		elif type == "twitter":
